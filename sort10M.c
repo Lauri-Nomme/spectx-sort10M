@@ -7,17 +7,21 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <pthread.h>
+
+int workerCount = 4;
+char* presentElements;
+char* memIn;
+int elementCount;
+int elementSize = 8;
+
+void* processPartition(void* workerIndex);
+void saveResult(char* fileName);
 
 int main(int argc, char** argv) {
     int fdIn;
-    FILE * fOut;
     struct stat stat;
-    char* memIn;
-    char* presentElements;
-    int workerCount = 1;
-    int workerIndex = 0;
-    int elementSize = strlen("9999999\n");
-    int elementCount;
+    pthread_t workers[workerCount];
 
     presentElements = calloc(10 * 1000 * 1000, 1);
 
@@ -32,16 +36,33 @@ int main(int argc, char** argv) {
 
     madvise(memIn, stat.st_size, POSIX_MADV_SEQUENTIAL);
 
-    for (int i = workerIndex; i < elementCount; i += workerCount) {
+    for (long i = 0; i < workerCount; ++i) {
+        pthread_create(&workers[i], NULL, &processPartition, (void*)i);
+    }
+
+    for (int i = 0; i < workerCount; ++i) {
+        pthread_join(workers[i], NULL);
+    }
+
+    saveResult(argv[2]);
+
+    return 0;
+}
+
+void* processPartition(void* workerIndex) {
+    for (long i = (long)workerIndex; i < elementCount; i += workerCount) {
         int number = strtol(memIn + elementSize * i, NULL, 10);
         presentElements[number] = 1;
     }
+}
 
-    fOut = fopen(argv[2], "w");
+void saveResult(char* fileName) {
+    FILE* fOut = fopen(fileName, "w");
     for (int i = 0; i <= 9999999; ++i) {
         if (presentElements[i]) {
             fprintf(fOut, "%07i\n", i);
         }
     }
+
     fclose(fOut);
 }
