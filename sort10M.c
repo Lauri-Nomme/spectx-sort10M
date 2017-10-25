@@ -13,6 +13,10 @@
 #define ELEMENT_MAX 9999999
 #define ELEMENT_SIZE 8
 
+#ifndef MAP_POPULATE
+#define MAP_POPULATE 0
+#endif
+
 int workerCount = 4;
 char** presentElements;
 char* memIn;
@@ -72,6 +76,8 @@ void* processPartition(void* workerIndex) {
         int number = strtol(memIn + ELEMENT_SIZE * i, NULL, 10);
         presentElements[number] = memIn + ELEMENT_SIZE * i;
     }
+
+    return 0;
 }
 
 int saveResult(char* fileName, int elementCount) {
