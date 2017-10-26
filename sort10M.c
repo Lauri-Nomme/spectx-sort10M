@@ -181,17 +181,23 @@ inline int saveResult(char* fileName, int elementCount) {
 }
 
 int getProcessorCount() {
+	#ifdef _SC_NPROCESSORS_ONLN
 	return sysconf(_SC_NPROCESSORS_ONLN);
+	#else
+	return 4;
+	#endif
 }
 
 int setSelfAffinitySingleCPU(int cpu) {
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(cpu, &cpuset);
-    if (-1 == sched_setaffinity(0, sizeof(cpu_set_t), &cpuset)) {
-        perror("sched_setaffinity");
+	#ifdef sched_setaffinity
+	cpu_set_t cpuset;
+	CPU_ZERO(&cpuset);
+	CPU_SET(cpu, &cpuset);
+	if (-1 == sched_setaffinity(0, sizeof(cpu_set_t), &cpuset)) {
+	perror("sched_setaffinity");
 		return -1;
-    }
+	}
+	#endif
 
 	return 0;
 }
