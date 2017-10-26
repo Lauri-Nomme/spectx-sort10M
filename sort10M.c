@@ -34,7 +34,7 @@ long ts();
 int main(int argc, char** argv) {
     long end;
     mainBegin = ts();
-    workerCount = getProcessorCount();
+    workerCount = min(getProcessorCount(), 8);
     printf("%04lu workerCount - %d\n", mainBegin - mainBegin, workerCount);
 
     pthread_t workers[workerCount];
