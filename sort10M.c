@@ -65,8 +65,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    close(fdOut);
-
     end = ts();
     printf("%04lu total - %lu\n", end - mainBegin, end - mainBegin);
     return 0;
@@ -99,33 +97,12 @@ inline int mapInput(char* fileName, char** memIn, int* elementCount) {
 inline unsigned int strtolb10(char* str) {
     uint64_t tmp = *(uint64_t*)str - 0x0030303030303030;
     char* tmpStr = (char*)&tmp;
-    //printf("%02X %02X %02X %02X %02X %02X %02X %02X \n", tmpStr[0], tmpStr[1], tmpStr[2], tmpStr[3], tmpStr[4], tmpStr[5], tmpStr[6], tmpStr[7]);
     unsigned int res = 0;
-    /*res += tmp & 0xFF;
-    res *= 10;
-    tmp >>= 8;
-    res += tmp & 0xFF;
-    res *= 10;
-    tmp >>= 8;
-    res += tmp & 0xFF;
-    res *= 10;
-    tmp >>= 8;
-    res += tmp & 0xFF;
-    res *= 10;
-    tmp >>= 8;
-    res += tmp & 0xFF;
-    res *= 10;
-    tmp >>= 8;
-    res += tmp & 0xFF;
-    res *= 10;
-    tmp >>= 8;
-    res += tmp & 0xFF;*/
+
     for (unsigned int i = 0; i < 7; ++i) {
         res = res * 10 + *tmpStr++;
     }
     return res;
-    //return (tmpStr[6] + 10 * (tmpStr[5] + 10 * (tmpStr[4] + 10 * (tmpStr[3] + 10 * (tmpStr[2] + 10 * (tmpStr[1] + 10 * tmpStr[0]))))));
-    //return atoi(str);
 }
 
 void* processPartition(void* arg) {
@@ -177,7 +154,8 @@ inline int saveResult(char* memOut, int elementCount) {
     long begin = ts();
     printf("%04lu saveResult begin\n", begin - mainBegin);
 
-    char* outPtr = memOut;
+    uint64_t* outPtr = (uint64_t*)memOut;
+    uint64_t* memOutEnd = (uint64_t*)(memOut + elementCount * ELEMENT_SIZE);
     uint64_t* rangeBegin = presentElements;
     uint64_t* rangeEnd;
     do {
@@ -186,20 +164,16 @@ inline int saveResult(char* memOut, int elementCount) {
             ++rangeBegin;
         }
 
-        // first missing element
         rangeEnd = rangeBegin;
         while (*rangeEnd) {
-            ++rangeEnd;
+            *outPtr++ = *rangeEnd++;
         }
 
-        memcpy(outPtr, rangeBegin, (rangeEnd - rangeBegin) * ELEMENT_SIZE);
-        outPtr += (rangeEnd - rangeBegin) * ELEMENT_SIZE;
         rangeBegin = rangeEnd;
-    } while (rangeBegin < &presentElements[ELEMENT_MAX] && rangeEnd < &presentElements[ELEMENT_MAX]);
+    } while (outPtr < memOutEnd);
 
     long end = ts();
     printf("%04lu saveResult copy - %lu\n", end - mainBegin, end - begin);
-    munmap(memOut, elementCount * ELEMENT_SIZE);
 
     end = ts();
     printf("%04lu saveResult end - %lu\n", end - mainBegin, end - begin);
