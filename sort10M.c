@@ -19,6 +19,8 @@
 #define MAP_POPULATE 0
 #endif
 
+#define MIN(lhs, rhs) (lhs < rhs ? lhs : rhs)
+
 int workerCount;
 uint64_t* presentElements;
 char* memIn;
@@ -34,8 +36,8 @@ long ts();
 int main(int argc, char** argv) {
     long end;
     mainBegin = ts();
-    workerCount = min(getProcessorCount(), 8);
-    printf("%04lu workerCount - %d\n", mainBegin - mainBegin, workerCount);
+    workerCount = MIN(getProcessorCount(), 8);
+    printf("%04lu workerCount - %u\n", mainBegin - mainBegin, workerCount);
 
     pthread_t workers[workerCount];
 
@@ -108,7 +110,7 @@ inline unsigned int strtolb10(uint64_t str) {
 void* processPartition(void* arg) {
     long begin = ts();
     long workerIndex = (long)arg;
-    printf("%04lu processPartition %d begin\n", begin - mainBegin, workerIndex);
+    printf("%04lu processPartition %lu begin\n", begin - mainBegin, workerIndex);
 
     setSelfAffinitySingleCPU(workerIndex);
 
@@ -120,7 +122,7 @@ void* processPartition(void* arg) {
     }
 
     long end = ts();
-    printf("%04lu processPartition %d end - %lu ms\n", end - mainBegin, workerIndex, end - begin);
+    printf("%04lu processPartition %lu end - %lu ms\n", end - mainBegin, workerIndex, end - begin);
     return 0;
 }
 
