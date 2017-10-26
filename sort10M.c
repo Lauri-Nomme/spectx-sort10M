@@ -94,8 +94,8 @@ inline int mapInput(char* fileName, char** memIn, int* elementCount) {
     return 0;
 }
 
-inline unsigned int strtolb10(char* str) {
-    uint64_t tmp = *(uint64_t*)str - 0x0030303030303030;
+inline unsigned int strtolb10(uint64_t str) {
+    uint64_t tmp = str - 0x0030303030303030;
     char* tmpStr = (char*)&tmp;
     unsigned int res = 0;
 
@@ -112,10 +112,11 @@ void* processPartition(void* arg) {
 
     setSelfAffinitySingleCPU(workerIndex);
 
-    for (long i = workerIndex; i < elementCount; i += workerCount) {
-        char* s = memIn + ELEMENT_SIZE * i;
-        unsigned int element = strtolb10(s);
-        presentElements[element] = *(uint64_t*)s;
+    uint64_t* partitionIter = &((uint64_t*)memIn)[workerIndex * (elementCount / workerCount)];
+    uint64_t* partitionEnd = &((uint64_t*)memIn)[(workerIndex + 1) * (elementCount / workerCount)];
+    for (; partitionIter < partitionEnd; partitionIter++) {
+        unsigned int element = strtolb10(*partitionIter);
+        presentElements[element] = *partitionIter;
     }
 
     long end = ts();
