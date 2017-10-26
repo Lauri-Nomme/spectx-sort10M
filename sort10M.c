@@ -1,17 +1,16 @@
 #define _GNU_SOURCE
 
 #include <stdio.h>
-#include <errno.h>
 #include <string.h>
-#include <stdlib.h>
 #include <stdint.h>
 #include <sys/mman.h>
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <sched.h>
+#include <sys/time.h>
+
+#include "affinity.h"
 
 #define ELEMENT_MAX 9999999
 #define ELEMENT_SIZE 8
@@ -24,20 +23,25 @@ int workerCount;
 uint64_t* presentElements;
 char* memIn;
 int elementCount;
+long mainBegin;
 
 int mapInput(char* fileName, char** memIn, int* elementCount);
+int mapOutput(char* fileName, int elementCount, char** memOut, int* fdOut);
 void* processPartition(void* workerIndex);
 int saveResult(char* fileName, int elementCount);
-int getProcessorCount();
-int setSelfAffinitySingleCPU(int cpu);
+long ts();
 
 int main(int argc, char** argv) {
+    long end;
+    mainBegin = ts();
     workerCount = getProcessorCount();
-    printf("workerCount - %d\n", workerCount);
-    
+    printf("%04lu workerCount - %d\n", mainBegin - mainBegin, workerCount);
+
     pthread_t workers[workerCount];
 
     presentElements = (uint64_t*)calloc(ELEMENT_MAX + 1, sizeof(char*));
+    end = ts();
+    printf("%04lu calloc presentElements - %lu\n", end - mainBegin, end - mainBegin);
 
     if (0 != mapInput(argv[1], &memIn, &elementCount)) {
         return 1;
@@ -47,20 +51,31 @@ int main(int argc, char** argv) {
         pthread_create(&workers[i], NULL, &processPartition, (void*)i);
     }
 
+    char* memOut;
+    int fdOut;
+    if (0 != mapOutput(argv[2], elementCount, &memOut, &fdOut)) {
+        return 1;
+    }
+
     for (int i = 0; i < workerCount; ++i) {
         pthread_join(workers[i], NULL);
     }
 
-    if (0 != saveResult(argv[2], elementCount)) {
+    if (0 != saveResult(memOut, elementCount)) {
         return 1;
     }
 
+    close(fdOut);
+
+    end = ts();
+    printf("%04lu total - %lu\n", end - mainBegin, end - mainBegin);
     return 0;
 }
 
 inline int mapInput(char* fileName, char** memIn, int* elementCount) {
     int fdIn;
     struct stat stat;
+    long begin = ts();
 
     if (-1 == (fdIn = open(fileName, O_RDONLY))) {
         perror("open infile");
@@ -76,6 +91,8 @@ inline int mapInput(char* fileName, char** memIn, int* elementCount) {
     }
 
     madvise(*memIn, stat.st_size, MADV_SEQUENTIAL);
+    long end = ts();
+    printf("%04lu mapInput end - %lu\n", end - mainBegin, end - begin);
     return 0;
 }
 
@@ -112,9 +129,11 @@ inline unsigned int strtolb10(char* str) {
 }
 
 void* processPartition(void* arg) {
+    long begin = ts();
     long workerIndex = (long)arg;
+    printf("%04lu processPartition %d begin\n", begin - mainBegin, workerIndex);
 
-	setSelfAffinitySingleCPU(workerIndex);
+    setSelfAffinitySingleCPU(workerIndex);
 
     for (long i = workerIndex; i < elementCount; i += workerCount) {
         char* s = memIn + ELEMENT_SIZE * i;
@@ -122,82 +141,74 @@ void* processPartition(void* arg) {
         presentElements[element] = *(uint64_t*)s;
     }
 
+    long end = ts();
+    printf("%04lu processPartition %d end - %lu ms\n", end - mainBegin, workerIndex, end - begin);
     return 0;
 }
 
-inline int saveResult(char* fileName, int elementCount) {
-    int fdOut;
-    char* memOut;
+int mapOutput(char* fileName, int elementCount, char** memOut, int* fdOut) {
+    long begin = ts();
+    printf("%04lu mapOutput begin\n", begin - mainBegin);
 
-    if (-1 == (fdOut = open(fileName, O_RDWR | O_CREAT | O_TRUNC, 0755))) {
+    if (-1 == (*fdOut = open(fileName, O_RDWR | O_CREAT, 0755))) {
         perror("open outfile");
         return -1;
     }
 
-    if (-1 == ftruncate(fdOut, elementCount * ELEMENT_SIZE)) {
+    if (-1 == ftruncate(*fdOut, elementCount * ELEMENT_SIZE)) {
         perror("ftruncate outfile");
         return -1;
     }
 
     if (MAP_FAILED ==
-        (memOut = (char*)mmap(NULL, elementCount * ELEMENT_SIZE, PROT_WRITE, MAP_SHARED | MAP_POPULATE, fdOut, 0))) {
+        (*memOut = (char*)mmap(NULL, elementCount * ELEMENT_SIZE, PROT_WRITE, MAP_SHARED | MAP_POPULATE, *fdOut, 0))) {
         perror("mmap outfile");
         return -1;
     }
 
-    madvise(memOut, elementCount * ELEMENT_SIZE, MADV_SEQUENTIAL);
-
-    char* outPtr = memOut;
-	uint64_t* rangeBegin = presentElements;
-	uint64_t* rangeEnd; 
-	do {
-		// first present element
-		while (!*rangeBegin) {
-			++rangeBegin;
-		}
-
-		 // first missing element
-		rangeEnd = rangeBegin;
-		while (*rangeEnd) {
-			++rangeEnd;
-		}
-
-		memcpy(outPtr, rangeBegin, (rangeEnd - rangeBegin) * ELEMENT_SIZE);
-		outPtr += (rangeEnd - rangeBegin) * ELEMENT_SIZE;
-		rangeBegin = rangeEnd;
-	} while (rangeBegin < &presentElements[ELEMENT_MAX] && rangeEnd < &presentElements[ELEMENT_MAX]);
-
-    /*for (int i = 0; i <= ELEMENT_MAX; ++i) {
-        if (presentElements[i]) {
-            *(uint64_t *) outPtr = *(uint64_t * )presentElements[i];
-            outPtr += ELEMENT_SIZE;
-        }
-    }*/
-
-    munmap(memOut, elementCount * ELEMENT_SIZE);
-    close(fdOut);
+    madvise(*memOut, elementCount * ELEMENT_SIZE, MADV_SEQUENTIAL);
+    long end = ts();
+    printf("%04lu mapOutput end - %lu\n", end - mainBegin, end - begin);
 
     return 0;
 }
 
-int getProcessorCount() {
-	#ifdef _SC_NPROCESSORS_ONLN
-	return sysconf(_SC_NPROCESSORS_ONLN);
-	#else
-	return 4;
-	#endif
+inline int saveResult(char* memOut, int elementCount) {
+    long begin = ts();
+    printf("%04lu saveResult begin\n", begin - mainBegin);
+
+    char* outPtr = memOut;
+    uint64_t* rangeBegin = presentElements;
+    uint64_t* rangeEnd;
+    do {
+        // first present element
+        while (!*rangeBegin) {
+            ++rangeBegin;
+        }
+
+        // first missing element
+        rangeEnd = rangeBegin;
+        while (*rangeEnd) {
+            ++rangeEnd;
+        }
+
+        memcpy(outPtr, rangeBegin, (rangeEnd - rangeBegin) * ELEMENT_SIZE);
+        outPtr += (rangeEnd - rangeBegin) * ELEMENT_SIZE;
+        rangeBegin = rangeEnd;
+    } while (rangeBegin < &presentElements[ELEMENT_MAX] && rangeEnd < &presentElements[ELEMENT_MAX]);
+
+    long end = ts();
+    printf("%04lu saveResult copy - %lu\n", end - mainBegin, end - begin);
+    munmap(memOut, elementCount * ELEMENT_SIZE);
+
+    end = ts();
+    printf("%04lu saveResult end - %lu\n", end - mainBegin, end - begin);
+
+    return 0;
 }
 
-int setSelfAffinitySingleCPU(int cpu) {
-	#ifdef sched_setaffinity
-	cpu_set_t cpuset;
-	CPU_ZERO(&cpuset);
-	CPU_SET(cpu, &cpuset);
-	if (-1 == sched_setaffinity(0, sizeof(cpu_set_t), &cpuset)) {
-	perror("sched_setaffinity");
-		return -1;
-	}
-	#endif
-
-	return 0;
+long ts() {
+    struct timespec tv;
+    clock_gettime(CLOCK_REALTIME, &tv);
+    return (tv.tv_sec * 1000) + tv.tv_nsec / 1000000;
 }
