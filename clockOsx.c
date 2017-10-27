@@ -1,6 +1,6 @@
 #if defined(__MACH__) && !defined(CLOCK_REALTIME)
 #include <sys/time.h>
-int clock_gettime(int /*clk_id*/, struct timespec* t) {
+int clock_gettime(int clk_id, struct timespec* t) {
     struct timeval now;
     int rv = gettimeofday(&now, NULL);
     if (rv) return rv;
