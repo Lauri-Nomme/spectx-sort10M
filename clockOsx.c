@@ -13,6 +13,6 @@ int clock_gettime(int clk_id, struct timespec* t) {
 
 long ts() {
     struct timespec tv;
-    clock_gettime(CLOCK_REALTIME, &tv);
+    clock_gettime(0, &tv);
     return (tv.tv_sec * 1000) + tv.tv_nsec / 1000000;
 }
