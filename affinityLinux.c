@@ -8,6 +8,7 @@ int getProcessorCount() {
 }
 
 int setSelfAffinitySingleCPU(int cpu) {
+#ifdef cpu_set_t
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     CPU_SET(cpu, &cpuset);
@@ -15,6 +16,6 @@ int setSelfAffinitySingleCPU(int cpu) {
         perror("sched_setaffinity");
         return -1;
     }
-
+#endif
     return 0;
 }
