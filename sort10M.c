@@ -9,7 +9,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <sys/time.h>
 
 #include "affinity.h"
 #include "clock.h"
@@ -33,7 +32,6 @@ int mapInput(char* fileName, char** memIn, int* elementCount);
 int mapOutput(char* fileName, int elementCount, char** memOut, int* fdOut);
 void* processPartition(void* workerIndex);
 int saveResult(char* fileName, int elementCount);
-long ts();
 
 int main(int argc, char** argv) {
     long end;
@@ -186,8 +184,3 @@ inline int saveResult(char* memOut, int elementCount) {
     return 0;
 }
 
-long ts() {
-    struct timespec tv;
-    clock_gettime(CLOCK_REALTIME, &tv);
-    return (tv.tv_sec * 1000) + tv.tv_nsec / 1000000;
-}
