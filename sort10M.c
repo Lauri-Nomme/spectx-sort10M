@@ -12,6 +12,7 @@
 #include <sys/time.h>
 
 #include "affinity.h"
+#include "clock.h"
 
 #define ELEMENT_MAX 9999999
 #define ELEMENT_SIZE 8
