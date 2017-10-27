@@ -2,5 +2,7 @@ language: c
 os:
   - linux
   - osx
+before_install:
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install md5sha1sum ; fi
 install: wget http://91.134.26.107/numbers.txt.bz2 && bunzip2 numbers.txt.bz2
 script: make test && make test && make test && make test && make test
