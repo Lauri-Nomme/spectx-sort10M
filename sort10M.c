@@ -29,14 +29,44 @@ int workerCount;
 uint64_t* presentElements;
 char* memIn;
 char* memOut;
-int elementCount;
+unsigned int elementCount;
 long mainBegin;
 
-int mapInput(char* fileName, char** memIn, int* elementCount);
-int mapOutput(char* fileName, int elementCount, char** memOut, int* fdOut);
+int mapInput(char* fileName, char** memIn, unsigned int* elementCount);
+int mapOutput(char* fileName, unsigned int elementCount, char** memOut, int* fdOut);
 void* processPartition(void* workerIndex);
-int saveResult(char* fileName, int elementCount, int direction);
+int saveResult(char* fileName, unsigned int elementCount, int direction);
 void* saveResultReverse(void* arg);
+
+inline unsigned int strtolb10(uint64_t str) {
+    uint64_t tmp = str - 0x0030303030303030;
+    char* tmpStr = (char*)&tmp;
+    unsigned int res = 0;
+
+    for (unsigned int i = 0; i < 7; ++i) {
+        res = res * 10 + *tmpStr++;
+    }
+    return res;
+}
+
+inline size_t presentElementsSize(unsigned int elementCount) {
+    return elementCount * ELEMENT_SIZE;
+}
+
+inline void presentElementsMark(uint64_t* str) {
+    unsigned int element = strtolb10(*str);
+    presentElements[element] = *str;
+}
+
+inline int presentElementsRetrieve(unsigned int element, uint64_t* dest) {
+    uint64_t str;
+    if (!(str = presentElements[element])) {
+        return 0;
+    }
+
+    *dest = str;
+    return 1;
+}
 
 int main(int argc, char** argv) {
     long end;
@@ -46,9 +76,9 @@ int main(int argc, char** argv) {
 
     pthread_t workers[workerCount];
 
-    if (MAP_FAILED == (presentElements = (uint64_t*)mmapHp(NULL, (ELEMENT_MAX + 1) * sizeof(char*), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS))) {
+    if (MAP_FAILED == (presentElements = (uint64_t*)mmapHp(NULL, presentElementsSize(ELEMENT_MAX + 1), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS))) {
         perror("allocate presentElements with huge pages, fallback");
-    	if (MAP_FAILED == (presentElements = (uint64_t*)mmap(NULL, (ELEMENT_MAX + 1) * sizeof(char*), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0))) {
+    	if (MAP_FAILED == (presentElements = (uint64_t*)mmap(NULL, presentElementsSize(ELEMENT_MAX + 1), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0))) {
             perror("allocate presentElements");
             return 1;
         }
@@ -95,7 +125,7 @@ void* saveResultReverse(void* arg) {
     return 0;
 }
 
-inline int mapInput(char* fileName, char** memIn, int* elementCount) {
+inline int mapInput(char* fileName, char** memIn, unsigned int* elementCount) {
     int fdIn;
     struct stat stat;
     long begin = ts();
@@ -108,7 +138,7 @@ inline int mapInput(char* fileName, char** memIn, int* elementCount) {
     fstat(fdIn, &stat);
     *elementCount = stat.st_size / ELEMENT_SIZE;
 
-    if (MAP_FAILED == (*memIn = (char*)mmap(NULL, stat.st_size, PROT_READ, MAP_SHARED | MAP_POPULATE, fdIn, 0))) {
+    if (MAP_FAILED == (*memIn = (char*)mmap(NULL, stat.st_size, PROT_READ, MAP_PRIVATE, fdIn, 0))) {
         perror("mmap infile");
         return -1;
     }
@@ -119,16 +149,6 @@ inline int mapInput(char* fileName, char** memIn, int* elementCount) {
     return 0;
 }
 
-inline unsigned int strtolb10(uint64_t str) {
-    uint64_t tmp = str - 0x0030303030303030;
-    char* tmpStr = (char*)&tmp;
-    unsigned int res = 0;
-
-    for (unsigned int i = 0; i < 7; ++i) {
-        res = res * 10 + *tmpStr++;
-    }
-    return res;
-}
 
 void* processPartition(void* arg) {
     long begin = ts();
@@ -140,8 +160,7 @@ void* processPartition(void* arg) {
     uint64_t* partitionIter = &((uint64_t*)memIn)[workerIndex * (elementCount / workerCount)];
     uint64_t* partitionEnd = &((uint64_t*)memIn)[(workerIndex + 1) * (elementCount / workerCount)];
     for (; partitionIter < partitionEnd; partitionIter++) {
-        unsigned int element = strtolb10(*partitionIter);
-        presentElements[element] = *partitionIter;
+        presentElementsMark(partitionIter);
     }
 
     long end = ts();
@@ -149,7 +168,7 @@ void* processPartition(void* arg) {
     return 0;
 }
 
-int mapOutput(char* fileName, int elementCount, char** memOut, int* fdOut) {
+int mapOutput(char* fileName, unsigned int elementCount, char** memOut, int* fdOut) {
     long begin = ts();
     printf("%04lu mapOutput begin\n", begin - mainBegin);
 
@@ -164,7 +183,7 @@ int mapOutput(char* fileName, int elementCount, char** memOut, int* fdOut) {
     }
 
     if (MAP_FAILED ==
-        (*memOut = (char*)mmap(NULL, elementCount * ELEMENT_SIZE, PROT_WRITE, MAP_SHARED | MAP_POPULATE, *fdOut, 0))) {
+        (*memOut = (char*)mmap(NULL, elementCount * ELEMENT_SIZE, PROT_WRITE, MAP_SHARED, *fdOut, 0))) {
         perror("mmap outfile");
         return -1;
     }
@@ -176,43 +195,30 @@ int mapOutput(char* fileName, int elementCount, char** memOut, int* fdOut) {
     return 0;
 }
 
-inline void swap(uint64_t** lhs, uint64_t** rhs) {
-    uint64_t* tmp;
-    tmp = *lhs;
-    *lhs = *rhs;
-    *rhs = tmp;
-}
+#define swap(lhs, rhs) { lhs -= rhs; rhs += lhs; lhs = rhs - lhs; }
 
-inline int saveResult(char* memOut, int elementCount, int direction) {
+inline int saveResult(char* memOut, unsigned int elementCount, int direction) {
     long begin = ts();
     printf("%04lu saveResult dir %i begin\n", begin - mainBegin, direction);
 
-    uint64_t* outPtr = (uint64_t*)memOut;
-    uint64_t* memOutEnd = (uint64_t*)(memOut + (elementCount - 1) * ELEMENT_SIZE);
-    uint64_t* rangeBegin = presentElements;
-    uint64_t* rangeEnd = presentElements + ELEMENT_MAX;
+    uint64_t* outPtr;
+    unsigned int elementIter;
     int copied = 0;
 
-    if (-1 == direction) {
-       swap(&outPtr, &memOutEnd);
-       swap(&rangeBegin, &rangeEnd);
+    if (1 == direction) {
+        outPtr = (uint64_t*)memOut;
+        elementIter = 0;
+    } else {
+        outPtr = (uint64_t*)(memOut + (elementCount - 1) * ELEMENT_SIZE);
+        elementIter = ELEMENT_MAX;
     }
 
     do {
-        // first present element
-        while (!*rangeBegin) {
-            rangeBegin += direction;
-        }
-
-        rangeEnd = rangeBegin;
-        while (*rangeEnd) {
-            copied++;
-            *outPtr = *rangeEnd;
+        if (presentElementsRetrieve(elementIter, outPtr)) {
             outPtr += direction;
-            rangeEnd += direction;
+            copied++;
         }
-
-        rangeBegin = rangeEnd;
+        elementIter += direction;
     } while (copied < elementCount);
 
     long end = ts();
