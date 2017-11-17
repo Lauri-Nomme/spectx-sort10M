@@ -12,6 +12,7 @@
 
 #include "affinity.h"
 #include "clock.h"
+#include "mmapHp.h"
 
 #define WORKER_MAX 8
 
@@ -43,9 +44,12 @@ int main(int argc, char** argv) {
 
     pthread_t workers[workerCount];
 
-    if (MAP_FAILED == (presentElements = (uint64_t*)mmap(NULL, (ELEMENT_MAX + 1) * sizeof(char*), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0))) {
-        perror("allocate presentElements");
-        return 1;
+    if (MAP_FAILED == (presentElements = (uint64_t*)mmapHp(NULL, (ELEMENT_MAX + 1) * sizeof(char*), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS))) {
+        perror("allocate presentElements with huge pages, fallback");
+    	if (MAP_FAILED == (presentElements = (uint64_t*)mmap(NULL, (ELEMENT_MAX + 1) * sizeof(char*), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0))) {
+            perror("allocate presentElements");
+            return 1;
+        }
     }
     end = ts();
     printf("%04lu allocate presentElements - %lu\n", end - mainBegin, end - mainBegin);
