@@ -28,13 +28,15 @@
 int workerCount;
 uint64_t* presentElements;
 char* memIn;
+char* memOut;
 int elementCount;
 long mainBegin;
 
 int mapInput(char* fileName, char** memIn, int* elementCount);
 int mapOutput(char* fileName, int elementCount, char** memOut, int* fdOut);
 void* processPartition(void* workerIndex);
-int saveResult(char* fileName, int elementCount);
+int saveResult(char* fileName, int elementCount, int direction);
+void* saveResultReverse(void* arg);
 
 int main(int argc, char** argv) {
     long end;
@@ -62,7 +64,6 @@ int main(int argc, char** argv) {
         pthread_create(&workers[i], NULL, &processPartition, (void*)i);
     }
 
-    char* memOut;
     int fdOut;
     if (0 != mapOutput(argv[2], elementCount, &memOut, &fdOut)) {
         return 1;
@@ -72,12 +73,25 @@ int main(int argc, char** argv) {
         pthread_join(workers[i], NULL);
     }
 
-    if (0 != saveResult(memOut, elementCount)) {
-        return 1;
+    if (workerCount > 1) {
+        pthread_create(&workers[1], NULL, &saveResultReverse, (void*)1);
+        saveResult(memOut, elementCount / 2, 1);
+        pthread_join(workers[1], NULL);
+    } else {
+        if (0 != saveResult(memOut, elementCount, 1)) {
+            return 1;
+        }
     }
 
     end = ts();
     printf("%04lu total - %lu\n", end - mainBegin, end - mainBegin);
+    return 0;
+}
+
+void* saveResultReverse(void* arg) {
+    long workerIndex = (long)arg;
+    setSelfAffinitySingleCPU(workerIndex);
+    saveResult(memOut + (elementCount / 2) * ELEMENT_SIZE, elementCount / 2, -1);
     return 0;
 }
 
@@ -162,33 +176,47 @@ int mapOutput(char* fileName, int elementCount, char** memOut, int* fdOut) {
     return 0;
 }
 
-inline int saveResult(char* memOut, int elementCount) {
+inline void swap(uint64_t** lhs, uint64_t** rhs) {
+    uint64_t* tmp;
+    tmp = *lhs;
+    *lhs = *rhs;
+    *rhs = tmp;
+}
+
+inline int saveResult(char* memOut, int elementCount, int direction) {
     long begin = ts();
-    printf("%04lu saveResult begin\n", begin - mainBegin);
+    printf("%04lu saveResult dir %i begin\n", begin - mainBegin, direction);
 
     uint64_t* outPtr = (uint64_t*)memOut;
-    uint64_t* memOutEnd = (uint64_t*)(memOut + elementCount * ELEMENT_SIZE);
+    uint64_t* memOutEnd = (uint64_t*)(memOut + (elementCount - 1) * ELEMENT_SIZE);
     uint64_t* rangeBegin = presentElements;
-    uint64_t* rangeEnd;
+    uint64_t* rangeEnd = presentElements + ELEMENT_MAX;
+    int copied = 0;
+
+    if (-1 == direction) {
+       swap(&outPtr, &memOutEnd);
+       swap(&rangeBegin, &rangeEnd);
+    }
+
     do {
         // first present element
         while (!*rangeBegin) {
-            ++rangeBegin;
+            rangeBegin += direction;
         }
 
         rangeEnd = rangeBegin;
         while (*rangeEnd) {
-            *outPtr++ = *rangeEnd++;
+            copied++;
+            *outPtr = *rangeEnd;
+            outPtr += direction;
+            rangeEnd += direction;
         }
 
         rangeBegin = rangeEnd;
-    } while (outPtr < memOutEnd);
+    } while (copied < elementCount);
 
     long end = ts();
-    printf("%04lu saveResult copy - %lu\n", end - mainBegin, end - begin);
-
-    end = ts();
-    printf("%04lu saveResult end - %lu\n", end - mainBegin, end - begin);
+    printf("%04lu saveResult dir %i end - %lu\n", end - mainBegin, direction, end - begin);
 
     return 0;
 }
