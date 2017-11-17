@@ -13,6 +13,8 @@
 #include "affinity.h"
 #include "clock.h"
 
+#define WORKER_MAX 8
+
 #define ELEMENT_MAX 9999999
 #define ELEMENT_SIZE 8
 
@@ -36,14 +38,17 @@ int saveResult(char* fileName, int elementCount);
 int main(int argc, char** argv) {
     long end;
     mainBegin = ts();
-    workerCount = MIN(getProcessorCount(), 8);
+    workerCount = MIN(getProcessorCount(), WORKER_MAX);
     printf("%04lu workerCount - %u\n", mainBegin - mainBegin, workerCount);
 
     pthread_t workers[workerCount];
 
-    presentElements = (uint64_t*)calloc(ELEMENT_MAX + 1, sizeof(char*));
+    if (MAP_FAILED == (presentElements = (uint64_t*)mmap(NULL, (ELEMENT_MAX + 1) * sizeof(char*), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0))) {
+        perror("allocate presentElements");
+        return 1;
+    }
     end = ts();
-    printf("%04lu calloc presentElements - %lu\n", end - mainBegin, end - mainBegin);
+    printf("%04lu allocate presentElements - %lu\n", end - mainBegin, end - mainBegin);
 
     if (0 != mapInput(argv[1], &memIn, &elementCount)) {
         return 1;
