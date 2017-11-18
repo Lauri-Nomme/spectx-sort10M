@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -49,22 +50,52 @@ inline unsigned int strtolb10(uint64_t str) {
     return res;
 }
 
+inline void ltostrb10(unsigned int l, uint64_t* dest) {
+    *dest = 0x0a30303030303030;
+    char* str = (char*)dest + 6;
+
+    //while (l) {
+        *str-- += l % 10;
+        l /= 10;
+        *str-- += l % 10;
+        l /= 10;
+        *str-- += l % 10;
+        l /= 10;
+        *str-- += l % 10;
+        l /= 10;
+        *str-- += l % 10;
+        l /= 10;
+        *str-- += l % 10;
+        l /= 10;
+        *str-- += l % 10;
+        l /= 10;
+    //}
+}
+
 inline size_t presentElementsSize(unsigned int elementCount) {
-    return elementCount * ELEMENT_SIZE;
+    return (elementCount + 7) / 8;
+}
+
+inline unsigned int elementIndex(unsigned int element) {
+    return element / 32;
+}
+
+inline uint32_t elementMask(unsigned int element) {
+    return (uint32_t)1 << (element % 32); 
 }
 
 inline void presentElementsMark(uint64_t* str) {
     unsigned int element = strtolb10(*str);
-    presentElements[element] = *str;
+    ((uint32_t*)presentElements)[elementIndex(element)] |= elementMask(element);
 }
 
 inline int presentElementsRetrieve(unsigned int element, uint64_t* dest) {
-    uint64_t str;
-    if (!(str = presentElements[element])) {
+    //printf("read %i idx %u data %016" PRIx64 " mask %016" PRIx64 "\n", element, elementIndex(element), presentElements[elementIndex(element)], elementMask(element));
+    if (!(((uint32_t*)presentElements)[elementIndex(element)] & elementMask(element))) {
         return 0;
     }
 
-    *dest = str;
+    ltostrb10(element, dest);
     return 1;
 }
 
@@ -195,15 +226,13 @@ int mapOutput(char* fileName, unsigned int elementCount, char** memOut, int* fdO
     return 0;
 }
 
-#define swap(lhs, rhs) { lhs -= rhs; rhs += lhs; lhs = rhs - lhs; }
-
 inline int saveResult(char* memOut, unsigned int elementCount, int direction) {
     long begin = ts();
     printf("%04lu saveResult dir %i begin\n", begin - mainBegin, direction);
 
     uint64_t* outPtr;
     unsigned int elementIter;
-    int copied = 0;
+    unsigned int copied = 0;
 
     if (1 == direction) {
         outPtr = (uint64_t*)memOut;
